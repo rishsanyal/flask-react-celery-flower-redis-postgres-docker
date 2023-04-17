@@ -6,24 +6,47 @@ services:
       dockerfile: Dockerfile.dev
     environment:
       FLASK_DEBUG: "on"
-      FLASK_APP: ./app.py
+      FLASK_APP: ./routes.py
     restart: always
     ports:
      - "5001:5001"
     depends_on:
       - redis
-    volumes: ['./api:/api']
+      - db
+    links:
+      - db:db
+    networks:
+        - djangonetwork
+    volumes: [
+      './api:/api'
+      ]
   worker:
     build:
       context: ./celery-queue
       dockerfile: Dockerfile.dev
     command: celery -A tasks worker -l info -E
     environment:
-      CELERY_BROKER_URL: redis://redis
-      CELERY_RESULT_BACKEND: redis://redis
+      CELERY_BROKER_URL: redis://redis:6379
+      CELERY_RESULT_BACKEND: redis://redis:6379
     depends_on:
       - redis
-    volumes: ['./celery-queue:/queue']
+    volumes: ['./api:/queue']
+    networks:
+        - djangonetwork
+  beat:
+    build:
+      context: ./celery-queue
+      dockerfile: Dockerfile.dev
+    command: celery -A tasks beat
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379
+      CELERY_RESULT_BACKEND: redis://redis:6379
+    depends_on:
+      - redis
+    volumes: ['./api:/queue']
+    networks:
+        - djangonetwork
+
   monitor:
     build:
       context: ./celery-queue
@@ -32,16 +55,20 @@ services:
      - "5555:5555"
     command:  ['celery', 'flower', '-A', 'tasks']
     environment:
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis
+      CELERY_RESULT_BACKEND: redis://redis
     depends_on:
       - redis
       - worker
-    volumes: ['./celery-queue:/queue']
+    volumes: ['./api:/queue']
+    networks:
+        - djangonetwork
   redis:
     image: redis:alpine
     ports:
       - "6379:6379"
+    networks:
+        - djangonetwork
   client:
     build: client
     command: ["npm", "start"]
@@ -53,4 +80,24 @@ services:
     ports:
       - '3000:3000'
     depends_on:
-      - api
+      - web
+    networks:
+        - djangonetwork
+  db:
+    image: postgres:13.4-alpine
+    restart: always
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data/
+    env_file:
+      - .env # The name of your environment file (the one at the repository root)
+    ports:
+      - "5418:5432"
+    networks:
+        - djangonetwork
+volumes:
+  node-modules:
+
+
+networks:
+    djangonetwork:
+        driver: bridge

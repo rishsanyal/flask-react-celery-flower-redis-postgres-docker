@@ -1,32 +1,55 @@
 import celery.states as states
-from flask import Flask, Response
+from flask import Flask, Response, request
 from flask import url_for, jsonify
+from flask_cors import CORS
 from worker import celery
+from flask_sqlalchemy import SQLAlchemy
 
-dev_mode = True
-app = Flask(__name__)
+## Login libraries
+from flask_bcrypt import Bcrypt
+from flask_migrate import Migrate
+# from redis_worker import redis_db
+# from mock import mock_class_info, mock_office_hours_info
+# from redis_crud import delete_students_queue
 
-
-@app.route('/add/<int:param1>/<int:param2>')
-def add(param1: int, param2: int) -> str:
-    task = celery.send_task('tasks.add', args=[param1, param2], kwargs={})
-    response = f"<a href='{url_for('check_task', task_id=task.id, external=True)}'>check status of {task.id} </a>"
-    return response
-
-
-@app.route('/check/<string:task_id>')
-def check_task(task_id: str) -> str:
-    res = celery.AsyncResult(task_id)
-    if res.state == states.PENDING:
-        return res.state
-    else:
-        return str(res.result)
+from flask_login import (
+    LoginManager
+)
 
 
-@app.route('/health_check')
-def health_check() -> Response:
-    return jsonify("OK")
+sql_db = SQLAlchemy()
 
+login_manager = LoginManager()
+login_manager.session_protection = "strong"
+login_manager.login_view = "login"
+login_manager.login_message_category = "info"
+
+migrate = Migrate()
+
+def create_app():
+    """Create the app.
+
+    Returns:
+        _type_: _description_
+    """
+    app = Flask(__name__)
+
+    app.secret_key = 'secret-key'
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://root:root@db:5432/mydb'
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+    CORS(app)
+
+    login_manager.init_app(app)
+    sql_db.init_app(app)
+    migrate.init_app(app, sql_db)
+
+    bcrypt = Bcrypt(app)
+    bcrypt.init_app(app)
+
+    return app
+
+app = create_app()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001)
+    app.run(host='0.0.0.0', port=5001, debug=True)
